@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const path = require('path');
 
 const app = express();
@@ -33,13 +33,49 @@ const isRender = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_UR
 const dbPath = isRender ? '/tmp/attendance.db' : './attendance.db';
 console.log(`📁 Database path: ${dbPath}`);
 
+// Initialize database
+const db = new Database(dbPath);
+
 // Enable WAL mode for better concurrency
-const db = new sqlite3.Database(dbPath);
-db.run("PRAGMA journal_mode=WAL");
-db.run("PRAGMA synchronous=NORMAL");
-db.run("PRAGMA cache_size=-64000");
-db.run("PRAGMA temp_store=MEMORY");
-db.configure("busyTimeout", 10000);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = -64000');
+
+// Create tables
+db.exec(`
+  DROP TABLE IF EXISTS members;
+  DROP TABLE IF EXISTS queue;
+  
+  CREATE TABLE members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cds_group TEXT,
+    state_code TEXT,
+    full_tag TEXT UNIQUE,
+    name TEXT,
+    phone TEXT,
+    status TEXT DEFAULT 'not_checked_in',
+    distance REAL,
+    registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  CREATE TABLE queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_tag TEXT,
+    queue_number INTEGER,
+    status TEXT DEFAULT 'waiting',
+    entered_queue DATETIME DEFAULT CURRENT_TIMESTAMP,
+    called_at DATETIME,
+    completed_at DATETIME
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_members_tag ON members(full_tag);
+  CREATE INDEX IF NOT EXISTS idx_members_status ON members(status);
+  CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
+  CREATE INDEX IF NOT EXISTS idx_queue_number ON queue(queue_number);
+`);
+
+console.log('✅ Database initialized with better-sqlite3');
 
 // Middleware
 app.use(express.json());
@@ -51,106 +87,14 @@ app.get('/healthz', (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: Date.now() });
 });
 
-// Rate limiting
-const rateLimit = new Map();
-app.use((req, res, next) => {
-  const ip = req.ip || req.socket.remoteAddress;
-  const now = Date.now();
-  const windowMs = 60000;
-  const maxRequests = 60;
-  
-  if (!rateLimit.has(ip)) {
-    rateLimit.set(ip, { count: 1, resetTime: now + windowMs });
-    return next();
-  }
-  
-  const record = rateLimit.get(ip);
-  if (now > record.resetTime) {
-    rateLimit.set(ip, { count: 1, resetTime: now + windowMs });
-    return next();
-  }
-  
-  if (record.count >= maxRequests) {
-    return res.status(429).json({ error: 'Too many requests' });
-  }
-  
-  record.count++;
-  next();
-});
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, record] of rateLimit) {
-    if (now > record.resetTime) {
-      rateLimit.delete(ip);
-    }
-  }
-}, 60000);
-
-// Database setup
-db.serialize(() => {
-  db.run("DROP TABLE IF EXISTS members");
-  db.run("DROP TABLE IF EXISTS queue");
-  
-  db.run(`
-    CREATE TABLE members (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cds_group TEXT,
-      state_code TEXT,
-      full_tag TEXT UNIQUE,
-      name TEXT,
-      phone TEXT,
-      status TEXT DEFAULT 'not_checked_in',
-      distance REAL,
-      registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-  
-  db.run(`
-    CREATE TABLE queue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_tag TEXT,
-      queue_number INTEGER,
-      status TEXT DEFAULT 'waiting',
-      entered_queue DATETIME DEFAULT CURRENT_TIMESTAMP,
-      called_at DATETIME,
-      completed_at DATETIME
-    )
-  `);
-  
-  db.run("CREATE INDEX IF NOT EXISTS idx_members_tag ON members(full_tag)");
-  db.run("CREATE INDEX IF NOT EXISTS idx_members_status ON members(status)");
-  db.run("CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)");
-  db.run("CREATE INDEX IF NOT EXISTS idx_queue_number ON queue(queue_number)");
-  
-  console.log('✅ Database initialized');
-});
-
-// Cache
+// Cache for queue
 let cachedQueue = [];
 let queueCacheTime = 0;
 const CACHE_TTL = 2000;
 
-function getCachedQueue(callback) {
-  const now = Date.now();
-  if (cachedQueue.length > 0 && (now - queueCacheTime) < CACHE_TTL) {
-    callback(null, cachedQueue);
-    return true;
-  }
-  return false;
-}
-
-function updateCache(queue) {
-  cachedQueue = queue;
-  queueCacheTime = Date.now();
-}
-
-function getNextQueueNumber(callback) {
-  db.get("SELECT MAX(queue_number) as max_num FROM queue WHERE status IN ('waiting', 'called', 'completed')", (err, row) => {
-    const nextNumber = (row && row.max_num) ? row.max_num + 1 : 1;
-    callback(nextNumber);
-  });
+function getNextQueueNumber() {
+  const row = db.prepare("SELECT MAX(queue_number) as max_num FROM queue WHERE status IN ('waiting', 'called', 'completed')").get();
+  return (row && row.max_num) ? row.max_num + 1 : 1;
 }
 
 // ==================== REGISTRATION ====================
@@ -163,25 +107,20 @@ app.post('/api/register', (req, res) => {
   
   const full_tag = `${cds_group}, ${state_code}`;
   
-  db.get(
-    "SELECT * FROM members WHERE cds_group = ? AND state_code = ?",
-    [cds_group, state_code],
-    (err, existingMember) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (existingMember) {
-        return res.status(400).json({ error: 'Member already registered' });
-      }
-      
-      db.run(
-        "INSERT INTO members (cds_group, state_code, full_tag, name, phone) VALUES (?, ?, ?, ?, ?)",
-        [cds_group, state_code, full_tag, name, phone],
-        function(err) {
-          if (err) return res.status(400).json({ error: err.message });
-          res.json({ success: true, message: 'Registration successful!' });
-        }
-      );
+  try {
+    const existing = db.prepare("SELECT * FROM members WHERE cds_group = ? AND state_code = ?").get(cds_group, state_code);
+    if (existing) {
+      return res.status(400).json({ error: 'Member already registered' });
     }
-  );
+    
+    db.prepare("INSERT INTO members (cds_group, state_code, full_tag, name, phone) VALUES (?, ?, ?, ?, ?)")
+      .run(cds_group, state_code, full_tag, name, phone);
+    
+    res.json({ success: true, message: 'Registration successful!' });
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ==================== LOGIN ====================
@@ -192,25 +131,25 @@ app.post('/api/login', (req, res) => {
     return res.status(400).json({ error: 'CDS Group and State Code required' });
   }
   
-  db.get(
-    "SELECT * FROM members WHERE cds_group = ? AND state_code = ?",
-    [cds_group, state_code],
-    (err, member) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!member) {
-        return res.status(401).json({ error: 'No account found. Please register first.' });
-      }
-      
-      res.json({ 
-        success: true, 
-        cds_group: member.cds_group,
-        state_code: member.state_code,
-        full_tag: member.full_tag,
-        name: member.name,
-        phone: member.phone
-      });
+  try {
+    const member = db.prepare("SELECT * FROM members WHERE cds_group = ? AND state_code = ?").get(cds_group, state_code);
+    
+    if (!member) {
+      return res.status(401).json({ error: 'No account found. Please register first.' });
     }
-  );
+    
+    res.json({ 
+      success: true, 
+      cds_group: member.cds_group,
+      state_code: member.state_code,
+      full_tag: member.full_tag,
+      name: member.name,
+      phone: member.phone
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==================== ADMIN AUTHENTICATION ====================
@@ -262,29 +201,18 @@ app.post('/api/check-proximity', (req, res) => {
   
   const isWithinRange = distance <= 100;
   
-  db.run(
-    "UPDATE members SET status = ?, distance = ?, last_seen = CURRENT_TIMESTAMP WHERE cds_group = ? AND state_code = ?",
-    [isWithinRange ? 'near_office' : 'not_checked_in', distance, cds_group, state_code]
-  );
+  // Update member status
+  db.prepare("UPDATE members SET status = ?, distance = ?, last_seen = CURRENT_TIMESTAMP WHERE cds_group = ? AND state_code = ?")
+    .run(isWithinRange ? 'near_office' : 'not_checked_in', distance, cds_group, state_code);
   
   if (isWithinRange) {
-    db.get(
-      "SELECT * FROM queue WHERE full_tag = ? AND status IN ('waiting', 'called')",
-      [full_tag],
-      (err, row) => {
-        if (!row) {
-          getNextQueueNumber((queueNumber) => {
-            db.run(
-              "INSERT INTO queue (full_tag, queue_number) VALUES (?, ?)",
-              [full_tag, queueNumber],
-              () => {
-                updateQueueStatus();
-              }
-            );
-          });
-        }
-      }
-    );
+    const existing = db.prepare("SELECT * FROM queue WHERE full_tag = ? AND status IN ('waiting', 'called')").get(full_tag);
+    
+    if (!existing) {
+      const queueNumber = getNextQueueNumber();
+      db.prepare("INSERT INTO queue (full_tag, queue_number) VALUES (?, ?)").run(full_tag, queueNumber);
+      updateQueueStatus();
+    }
   }
   
   res.json({ 
@@ -296,51 +224,41 @@ app.post('/api/check-proximity', (req, res) => {
 
 // ==================== QUEUE ENDPOINTS ====================
 app.get('/api/queue', (req, res) => {
-  if (getCachedQueue((err, cached) => {
-    res.json(cached);
-  })) return;
+  const now = Date.now();
+  if (cachedQueue.length > 0 && (now - queueCacheTime) < CACHE_TTL) {
+    return res.json(cachedQueue);
+  }
   
-  db.all(`
+  const rows = db.prepare(`
     SELECT q.*, m.name, m.cds_group, m.state_code 
     FROM queue q 
     JOIN members m ON q.full_tag = m.full_tag 
     WHERE q.status IN ('waiting', 'called')
     ORDER BY q.queue_number ASC
-  `, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-    } else {
-      updateCache(rows || []);
-      res.json(rows || []);
-    }
-  });
+  `).all();
+  
+  cachedQueue = rows;
+  queueCacheTime = now;
+  res.json(rows);
 });
 
 app.post('/api/call-next', authenticateAdmin, (req, res) => {
-  db.get(`
+  const row = db.prepare(`
     SELECT * FROM queue 
     WHERE status = 'waiting' 
     ORDER BY queue_number ASC 
     LIMIT 1
-  `, (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
+  `).get();
+  
+  if (row) {
+    db.prepare("UPDATE queue SET status = 'called', called_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
     
-    if (row) {
-      db.run(
-        "UPDATE queue SET status = 'called', called_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [row.id],
-        (err) => {
-          if (err) return res.status(500).json({ error: err.message });
-          
-          io.emit('your-turn', { full_tag: row.full_tag, queue_number: row.queue_number });
-          updateQueueStatus();
-          res.json({ success: true, called_tag: row.full_tag, queue_number: row.queue_number });
-        }
-      );
-    } else {
-      res.json({ success: false, message: "No one in queue" });
-    }
-  });
+    io.emit('your-turn', { full_tag: row.full_tag, queue_number: row.queue_number });
+    updateQueueStatus();
+    res.json({ success: true, called_tag: row.full_tag, queue_number: row.queue_number });
+  } else {
+    res.json({ success: false, message: "No one in queue" });
+  }
 });
 
 app.post('/api/complete-checkin', (req, res) => {
@@ -348,36 +266,27 @@ app.post('/api/complete-checkin', (req, res) => {
   
   if (!full_tag) return res.status(400).json({ error: 'Full tag required' });
   
-  db.run(
-    "UPDATE queue SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE full_tag = ? AND status = 'called'",
-    [full_tag],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      
-      db.run("UPDATE members SET status = 'checked_in' WHERE full_tag = ?", [full_tag]);
-      updateQueueStatus();
-      res.json({ success: true });
-    }
-  );
+  db.prepare("UPDATE queue SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE full_tag = ? AND status = 'called'").run(full_tag);
+  db.prepare("UPDATE members SET status = 'checked_in' WHERE full_tag = ?").run(full_tag);
+  
+  updateQueueStatus();
+  res.json({ success: true });
 });
 
 // ==================== PUBLIC ENDPOINTS ====================
 app.get('/api/members', (req, res) => {
-  db.all("SELECT cds_group, state_code, full_tag, name, phone, status, registered_at FROM members ORDER BY registered_at DESC LIMIT 100", (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
-  });
+  const rows = db.prepare("SELECT cds_group, state_code, full_tag, name, phone, status, registered_at FROM members ORDER BY registered_at DESC LIMIT 100").all();
+  res.json(rows);
 });
 
 app.get('/api/stats', (req, res) => {
-  db.get("SELECT COUNT(*) as total FROM members", (err, members) => {
-    db.get("SELECT COUNT(*) as waiting FROM queue WHERE status = 'waiting'", (err2, queue) => {
-      res.json({
-        total_members: members ? members.total : 0,
-        waiting_in_queue: queue ? queue.waiting : 0,
-        server_status: 'healthy'
-      });
-    });
+  const total = db.prepare("SELECT COUNT(*) as total FROM members").get();
+  const waiting = db.prepare("SELECT COUNT(*) as waiting FROM queue WHERE status = 'waiting'").get();
+  
+  res.json({
+    total_members: total.total,
+    waiting_in_queue: waiting.waiting,
+    server_status: 'healthy'
   });
 });
 
@@ -396,25 +305,23 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 function updateQueueStatus() {
-  db.all(`
+  const rows = db.prepare(`
     SELECT q.*, m.name, m.cds_group, m.state_code 
     FROM queue q 
     JOIN members m ON q.full_tag = m.full_tag 
     WHERE q.status IN ('waiting', 'called')
     ORDER BY q.queue_number ASC
-  `, (err, rows) => {
-    if (!err) {
-      updateCache(rows || []);
-      io.emit('queue-update', rows || []);
-    }
-  });
+  `).all();
+  
+  cachedQueue = rows;
+  queueCacheTime = Date.now();
+  io.emit('queue-update', rows);
 }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n✅ CDS Attendance System Running!`);
   console.log(`📍 Server: http://0.0.0.0:${PORT}`);
-  console.log(`📊 WAL Mode: ENABLED`);
   console.log(`💾 Database: ${dbPath}`);
   console.log(`📏 Range: 100 METERS`);
   console.log(`\n🔐 Admin Login: ${ADMIN_CREDENTIALS.username} / ${ADMIN_CREDENTIALS.password}\n`);
