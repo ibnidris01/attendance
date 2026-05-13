@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>NYSC CDS Attendance - Register/Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .toggle-active {
+            background-color: #008751 !important;
+            color: white !important;
+        }
+        .toggle-inactive {
+            background-color: #e5e7eb !important;
+            color: #6b7280 !important;
+        }
+        .nysc-bg {
+            background: linear-gradient(135deg, #008751 0%, #00633d 100%);
+        }
+        .image-placeholder {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%23008751"/><circle cx="50" cy="50" r="35" fill="white"/><path d="M50 15 L55 35 L75 35 L60 48 L65 68 L50 55 L35 68 L40 48 L25 35 L45 35 L50 15Z" fill="%23008751"/></svg>');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-green-50 to-emerald-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-md">
+        <!-- Auth Container -->
+        <div id="authContainer" class="bg-white rounded-2xl shadow-xl p-6">
+            <!-- NYSC Header with Image -->
+            <div class="text-center mb-4">
+                <div class="flex justify-center mb-3">
+                    <img src="images/banner1.png" 
+                         alt="NYSC Logo" 
+                         class="w-60 h-20 object-contain"
+                         onerror="this.src='https://nysc.gov.ng/assets/img/nysc-logo.png'">
+                </div>
+                <h1 class="text-2xl font-bold text-gray-800">NYSC CDS Attendance</h1>
+                <p class="text-gray-600 text-xs">National Youth Service Corps - Community Development Service</p>
+            </div>
+            
+            <!-- Tabs -->
+            <div class="flex mb-6 border rounded-xl overflow-hidden">
+                <button id="registerTab" class="flex-1 py-3 font-bold transition toggle-active">Register</button>
+                <button id="loginTab" class="flex-1 py-3 font-bold transition toggle-inactive">Login</button>
+            </div>
+
+            <!-- Registration Form -->
+            <div id="registerFormDiv">
+                <div class="text-center mb-6">
+                    <img src="images/ali.jfif" 
+                         alt="Register" 
+                         class="w-16 h-16 mx-auto mb-2 opacity-80">
+                    <h2 class="text-2xl font-bold text-gray-800">Create Account</h2>
+                    <p class="text-gray-600 text-sm mt-2">Register with your CDS credentials</p>
+                </div>
+                
+                <form id="registrationForm">
+                    <div class="mb-3">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">CDS Group</label>
+                        <select id="reg_cds_group" required 
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition bg-white">
+                            <option value="">Select CDS Group</option>
+                            <option value="infotech">Infotech</option>
+                            <option value="road safety">Road Safety</option>
+                            <option value="red cross">Red Cross</option>
+                            <option value="editorial/publicity">Editorial/Publicity</option>
+                            <option value="education">Education</option>
+                            <option value="servicom">SERVICOM</option>
+                            <option value="medical & health">Medical & Health</option>
+                            <option value="charity">Charity</option>
+                            <option value="sports">Sports</option>
+                            <option value="agro-allied">Agro-Allied</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">State Code Number</label>
+                        <input type="text" id="reg_state_code" required 
+                               placeholder="e.g., LA/25C/8822"
+                               class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition font-mono">
+                        <p class="text-xs text-gray-500 mt-1">Enter your unique state code (e.g., LA/25C/8822)</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Full Name</label>
+                        <input type="text" id="reg_name" required 
+                               placeholder="Your full name"
+                               class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition">
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Phone Number</label>
+                        <input type="tel" id="reg_phone" required 
+                               placeholder="e.g., 08012345678"
+                               class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition">
+                    </div>
+                    <button type="submit" 
+                            class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-green-700 transition">
+                        Register Now →
+                    </button>
+                </form>
+            </div>
+
+            <!-- Login Form -->
+            <div id="loginFormDiv" style="display: none;">
+                <div class="text-center mb-6">
+                    <img src="images/nysc.png" 
+                         alt="Login" 
+                         class="w-16 h-16 mx-auto mb-2 opacity-80">
+                    <h2 class="text-2xl font-bold text-gray-800">Login to Your Account</h2>
+                    <p class="text-gray-600 text-sm mt-2">Enter your CDS credentials</p>
+                </div>
+                
+                <form id="loginFormSubmit">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">CDS Group</label>
+                        <select id="login_cds_group" required 
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition bg-white">
+                            <option value="">Select CDS Group</option>
+                            <option value="infotech">Infotech</option>
+                            <option value="road safety">Road Safety</option>
+                            <option value="red cross">Red Cross</option>
+                            <option value="editorial/publicity">Editorial/Publicity</option>
+                            <option value="education">Education</option>
+                            <option value="servicom">SERVICOM</option>
+                            <option value="medical & health">Medical & Health</option>
+                            <option value="charity">Charity</option>
+                            <option value="sports">Sports</option>
+                            <option value="agro-allied">Agro-Allied</option>
+                            
+                            <!-- <option value="infotech">💻 Infotech</option>
+                            <option value="road safety">🚦 Road Safety</option>
+                            <option value="red cross">❤️ Red Cross</option>
+                            <option value="editorial/publicity">📰 Editorial/Publicity</option>
+                            <option value="education">📚 Education</option>
+                            <option value="servicom">⭐ SERVICOM</option>
+                            <option value="medical & health">🏥 Medical & Health</option>
+                            <option value="charity">🤝 Charity</option>
+                            <option value="sports">⚽ Sports</option>
+                            <option value="agro-allied">🌾 Agro-Allied</option> -->
+                        </select>
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">State Code Number</label>
+                        <input type="text" id="login_state_code" required 
+                               placeholder="e.g., LA/25C/8822"
+                               class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition font-mono">
+                    </div>
+                    <button type="submit" 
+                            class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-green-700 transition">
+                        Login →
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Dashboard Container -->
+        <div id="dashboardContainer" style="display: none;">
+            <div class="bg-white rounded-2xl shadow-xl p-6 mb-4">
+                <div class="text-center mb-4">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/NYSC_logo.png/200px-NYSC_logo.png" 
+                         alt="NYSC Logo" 
+                         class="w-20 h-20 mx-auto mb-2 object-contain">
+                    <p class="text-gray-500 text-sm">Welcome, NYSC Corper</p>
+                    <p id="memberNameDisplay" class="text-xl font-bold text-gray-800 my-2"></p>
+                    <p id="cdsGroupDisplay" class="text-green-600 font-medium"></p>
+                    <p id="stateCodeDisplay" class="text-gray-600 font-mono text-sm"></p>
+                </div>
+                
+                <div class="border-t pt-4">
+                    <div id="proximityStatus" class="text-center">
+                        <div class="flex items-center justify-center space-x-2 text-yellow-600">
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-yellow-600 border-t-transparent"></div>
+                            <span>Checking your location...</span>
+                        </div>
+                    </div>
+                    
+                    <div id="queuePosition" style="display: none;">
+                        <div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                            <p class="text-gray-600 text-sm">Your Queue Number</p>
+                            <p id="positionNumber" class="text-4xl font-bold text-green-600"></p>
+                            <p class="text-xs text-gray-500 mt-1">Stay within 100 meters of CDS office</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-xl p-4">
+                <div class="text-center text-gray-600 text-sm">
+                    <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" 
+                         alt="Guidelines" 
+                         class="w-12 h-12 mx-auto mb-2 opacity-60">
+                    <p class="mb-2 font-bold">🇳🇬 NYSC CDS Guidelines:</p>
+                    <ul class="text-left text-xs space-y-1">
+                        <li>✓ Stay within 100 METERS of the CDS office</li>
+                        <li>✓ You'll be automatically added to the queue</li>
+                        <li>✓ Wait for your turn notification</li>
+                        <li>✓ Go to the office when called</li>
+                        <li>✓ Service before self</li>
+                    </ul>
+                </div>
+                <button id="logoutBtn" class="mt-4 w-full bg-red-500 text-white font-bold py-2 rounded-lg hover:bg-red-600 text-sm">
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <!-- Turn Notification Modal -->
+        <div id="turnNotification" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 50; padding: 1rem;">
+            <div class="bg-white rounded-2xl p-8 text-center max-w-sm w-full shadow-2xl">
+                <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" 
+                     alt="Notification" 
+                     class="w-20 h-20 mx-auto mb-4">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">It's Your Turn!</h2>
+                <p class="text-gray-600 mb-2">Please proceed to the CDS office now</p>
+                <p class="text-sm text-gray-500 mb-6">The CDS officer is ready for you</p>
+                <button id="confirmCheckin" 
+                        class="w-full bg-green-600 text-white font-bold py-3 px-8 rounded-xl hover:bg-green-700 transition">
+                    I'm Here ✓
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUser = null;
+        let watchId = null;
+
+        const authContainer = document.getElementById('authContainer');
+        const dashboardContainer = document.getElementById('dashboardContainer');
+        const registerFormDiv = document.getElementById('registerFormDiv');
+        const loginFormDiv = document.getElementById('loginFormDiv');
+        const registerTab = document.getElementById('registerTab');
+        const loginTab = document.getElementById('loginTab');
+        const turnNotification = document.getElementById('turnNotification');
+
+        registerTab.addEventListener('click', () => {
+            registerTab.className = 'flex-1 py-3 font-bold transition toggle-active';
+            loginTab.className = 'flex-1 py-3 font-bold transition toggle-inactive';
+            registerFormDiv.style.display = 'block';
+            loginFormDiv.style.display = 'none';
+        });
+
+        loginTab.addEventListener('click', () => {
+            loginTab.className = 'flex-1 py-3 font-bold transition toggle-active';
+            registerTab.className = 'flex-1 py-3 font-bold transition toggle-inactive';
+            loginFormDiv.style.display = 'block';
+            registerFormDiv.style.display = 'none';
+        });
+
+        function formatCDSGroup(group) {
+            return group.toLowerCase();
+        }
+
+        document.getElementById('registrationForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const cds_group = formatCDSGroup(document.getElementById('reg_cds_group').value);
+            const state_code = document.getElementById('reg_state_code').value.trim().toUpperCase();
+            const name = document.getElementById('reg_name').value.trim();
+            const phone = document.getElementById('reg_phone').value.trim();
+
+            if (!cds_group || !state_code || !name || !phone) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cds_group, state_code, name, phone })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✓ Registration successful! Please login.');
+                    loginTab.click();
+                    document.getElementById('login_cds_group').value = cds_group;
+                    document.getElementById('login_state_code').value = state_code;
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                alert('Error connecting to server');
+            }
+        });
+
+        document.getElementById('loginFormSubmit').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const cds_group = formatCDSGroup(document.getElementById('login_cds_group').value);
+            const state_code = document.getElementById('login_state_code').value.trim().toUpperCase();
+
+            if (!cds_group || !state_code) {
+                alert('Please select CDS Group and enter State Code');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cds_group, state_code })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentUser = {
+                        cds_group: data.cds_group,
+                        state_code: data.state_code,
+                        full_tag: data.full_tag,
+                        name: data.name,
+                        phone: data.phone
+                    };
+                    localStorage.setItem('cds_user', JSON.stringify(currentUser));
+                    showDashboard();
+                    startProximityCheck();
+                } else {
+                    if (data.error && data.error.includes('register')) {
+                        alert('No account found. Please register first.');
+                        registerTab.click();
+                    } else {
+                        alert('Error: ' + (data.error || 'Login failed'));
+                    }
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Error connecting to server');
+            }
+        });
+
+        const savedUser = localStorage.getItem('cds_user');
+        if (savedUser) {
+            try {
+                currentUser = JSON.parse(savedUser);
+                if (currentUser && currentUser.full_tag) {
+                    showDashboard();
+                    startProximityCheck();
+                } else {
+                    localStorage.removeItem('cds_user');
+                }
+            } catch (error) {
+                localStorage.removeItem('cds_user');
+            }
+        }
+
+        function showDashboard() {
+            authContainer.style.display = 'none';
+            dashboardContainer.style.display = 'block';
+            document.getElementById('memberNameDisplay').textContent = currentUser.name || 'Member';
+            const displayGroup = currentUser.cds_group.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+            document.getElementById('cdsGroupDisplay').textContent = displayGroup;
+            document.getElementById('stateCodeDisplay').textContent = currentUser.state_code || '';
+        }
+
+        function startProximityCheck() {
+            if (!navigator.geolocation) {
+                document.getElementById('proximityStatus').innerHTML = '<div class="text-red-600">❌ Geolocation not supported</div>';
+                return;
+            }
+
+            watchId = navigator.geolocation.watchPosition(
+                async (position) => {
+                    if (!currentUser) return;
+                    
+                    const { latitude, longitude } = position.coords;
+                    
+                    try {
+                        const response = await fetch('/api/check-proximity', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cds_group: currentUser.cds_group,
+                                state_code: currentUser.state_code,
+                                latitude: latitude,
+                                longitude: longitude
+                            })
+                        });
+
+                        const data = await response.json();
+                        
+                        if (data.within_range) {
+                            document.getElementById('proximityStatus').innerHTML = `
+                                <div class="text-green-600 font-medium">
+                                    ✅ Within range (${data.distance} meters from CDS office)
+                                </div>
+                                <div class="text-sm text-gray-500 mt-1">You're in the queue</div>
+                            `;
+                            document.getElementById('queuePosition').style.display = 'block';
+                        } else {
+                            document.getElementById('proximityStatus').innerHTML = `
+                                <div class="text-red-600 font-medium">
+                                    ⚠️ Too far (${data.distance} meters away)
+                                </div>
+                                <div class="text-sm text-gray-500 mt-1">Need to be within 100 meters of CDS office</div>
+                            `;
+                            document.getElementById('queuePosition').style.display = 'none';
+                        }
+                    } catch (error) {
+                        console.error('Error checking proximity:', error);
+                    }
+                },
+                (error) => {
+                    let errorMessage = 'Please enable location services';
+                    if (error.code === 1) errorMessage = '❌ Please allow location access';
+                    if (error.code === 2) errorMessage = '❌ Location unavailable';
+                    if (error.code === 3) errorMessage = '⏱️ Location timeout';
+                    document.getElementById('proximityStatus').innerHTML = `<div class="text-red-600 font-medium">${errorMessage}</div>`;
+                },
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
+            );
+        }
+
+        socket.on('your-turn', (data) => {
+            if (currentUser && data && data.full_tag === currentUser.full_tag && turnNotification) {
+                turnNotification.style.display = 'flex';
+                try {
+                    new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3').play();
+                } catch(e) {}
+            }
+        });
+
+        socket.on('queue-update', (queue) => {
+            if (!currentUser || !queue) return;
+            const userQueueItem = queue.find(q => q && q.full_tag === currentUser.full_tag);
+            
+            if (userQueueItem) {
+                if (userQueueItem.status === 'waiting') {
+                    const queueDiv = document.getElementById('queuePosition');
+                    queueDiv.style.display = 'block';
+                    queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                        <p class="text-gray-600 text-sm">Your Queue Number</p>
+                        <p class="text-5xl font-bold text-green-600">${userQueueItem.queue_number}</p>
+                        <p class="text-xs text-gray-500 mt-1">Stay within 100 meters of CDS office</p>
+                        <p class="text-xs text-green-600 mt-2">Position in line: ${queue.filter(q => q.status === 'waiting' && q.queue_number < userQueueItem.queue_number).length + 1} of ${queue.filter(q => q.status === 'waiting').length}</p>
+                    </div>`;
+                } else if (userQueueItem.status === 'called') {
+                    const queueDiv = document.getElementById('queuePosition');
+                    queueDiv.style.display = 'block';
+                    queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                        <p class="text-green-600 font-bold text-2xl">🎯 It's your turn!</p>
+                        <p class="text-sm text-gray-600 mt-2">Your queue number: ${userQueueItem.queue_number}</p>
+                        <p class="text-sm text-gray-600">Please go to the CDS office now</p>
+                    </div>`;
+                }
+            }
+        });
+
+        document.getElementById('confirmCheckin')?.addEventListener('click', async () => {
+            if (!currentUser) return;
+            await fetch('/api/complete-checkin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ full_tag: currentUser.full_tag })
+            });
+            turnNotification.style.display = 'none';
+            alert('✓ Check-in successful! Thank you for your service.');
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            setTimeout(() => { localStorage.removeItem('cds_user'); location.reload(); }, 2000);
+        });
+
+        document.getElementById('logoutBtn')?.addEventListener('click', () => {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            localStorage.removeItem('cds_user');
+            location.reload();
+        });
+    </script>
+</body>
+</html>

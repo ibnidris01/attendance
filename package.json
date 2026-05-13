@@ -1,0 +1,14 @@
+{
+  "name": "attendance-queue-system",
+  "version": "1.0.0",
+  "description": "Geofencing attendance system with queue management",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.5.4",
+    "sqlite3": "^6.0.1"
+  }
+}
