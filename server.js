@@ -9,28 +9,32 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
-  maxHttpBufferSize: 1e6
+  maxHttpBufferSize: 1e6,
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
 // ===== CONFIGURATION =====
-// const OFFICE_LOCATION = {
-//   lat: 6.5488,
-//   lng: 3.2695
-// };
-
 const OFFICE_LOCATION = {
-  lat: 6.5488,   // Your office latitude
-  lng: 3.2695    // Your office longitude
+  lat: 6.5488,
+  lng: 3.2695
 };
 
-// Admin credentials - CHANGE THIS PASSWORD!
+// Admin credentials - CHANGE THIS!
 const ADMIN_CREDENTIALS = {
   username: 'admin',
-  password: 'nysc2024'  // CHANGE THIS FOR SECURITY!
+  password: 'nysc2024'
 };
 
+// Database path - Use /tmp on Render for free tier
+const isRender = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL;
+const dbPath = isRender ? '/tmp/attendance.db' : './attendance.db';
+console.log(`📁 Database path: ${dbPath}`);
+
 // Enable WAL mode for better concurrency
-const db = new sqlite3.Database('./attendance.db');
+const db = new sqlite3.Database(dbPath);
 db.run("PRAGMA journal_mode=WAL");
 db.run("PRAGMA synchronous=NORMAL");
 db.run("PRAGMA cache_size=-64000");
@@ -42,10 +46,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// Health check endpoint for Render
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: Date.now() });
+});
+
 // Rate limiting
 const rateLimit = new Map();
 app.use((req, res, next) => {
-  const ip = req.ip;
+  const ip = req.ip || req.socket.remoteAddress;
   const now = Date.now();
   const windowMs = 60000;
   const maxRequests = 60;
@@ -110,12 +119,12 @@ db.serialize(() => {
     )
   `);
   
-  db.run("CREATE INDEX idx_members_tag ON members(full_tag)");
-  db.run("CREATE INDEX idx_members_status ON members(status)");
-  db.run("CREATE INDEX idx_queue_status ON queue(status)");
-  db.run("CREATE INDEX idx_queue_number ON queue(queue_number)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_members_tag ON members(full_tag)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_members_status ON members(status)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_queue_number ON queue(queue_number)");
   
-  console.log('✅ Database optimized with WAL mode and indexes');
+  console.log('✅ Database initialized');
 });
 
 // Cache
@@ -207,8 +216,6 @@ app.post('/api/login', (req, res) => {
 // ==================== ADMIN AUTHENTICATION ====================
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
-  
-  console.log('🔐 Admin login attempt:', { username });
   
   if (username === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
     const token = Buffer.from(`${username}:${Date.now()}`).toString('base64');
@@ -404,16 +411,11 @@ function updateQueueStatus() {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n✅ CDS Attendance System Running (Optimized for 3,000+ users)!`);
-  console.log(`📍 Server: http://localhost:${PORT}`);
-  console.log(`👥 Member Portal: http://localhost:${PORT}`);
-  console.log(`👨‍💼 Admin Panel: http://localhost:${PORT}/admin.html`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n✅ CDS Attendance System Running!`);
+  console.log(`📍 Server: http://0.0.0.0:${PORT}`);
   console.log(`📊 WAL Mode: ENABLED`);
-  console.log(`💾 Cache TTL: ${CACHE_TTL}ms`);
+  console.log(`💾 Database: ${dbPath}`);
   console.log(`📏 Range: 100 METERS`);
-  console.log(`\n🔐 Admin Login:`);
-  console.log(`   Username: ${ADMIN_CREDENTIALS.username}`);
-  console.log(`   Password: ${ADMIN_CREDENTIALS.password}`);
-  console.log(`\n⚠️  CHANGE THE DEFAULT ADMIN PASSWORD FOR SECURITY!\n`);
+  console.log(`\n🔐 Admin Login: ${ADMIN_CREDENTIALS.username} / ${ADMIN_CREDENTIALS.password}\n`);
 });
