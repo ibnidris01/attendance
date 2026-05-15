@@ -178,7 +178,7 @@
 
         <!-- Dashboard Container -->
         <div id="dashboardContainer" style="display: none;">
-            <div id="notificationArea" style="position: fixed; top: 20px; right: 20px; z-index: 1000; max-width: 350px;"></div>
+            <div id="notificationArea" style="position: fixed; top: 20px; right: 20px; z-index: 1000; max-width: 350px;">
             <div class="bg-white rounded-2xl shadow-xl p-6 mb-4">
                 <div class="text-center mb-4">
                     <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/NYSC_logo.png/200px-NYSC_logo.png" 
@@ -214,18 +214,16 @@
                     <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" 
                          alt="Guidelines" 
                          class="w-12 h-12 mx-auto mb-2 opacity-60">
-                    <p class="mb-2 font-bold">🇳🇬 NYSC CDS Guidelines:</p>
+                    <p class="mb-2 font-bold">NYSC CDS Guidelines:</p>
                     <ul class="text-left text-xs space-y-1">
-                        <li>✓ Stay within 100 METERS of the CDS office</li>
-                        <li>✓ You'll be automatically added to the queue</li>
-                        <li>✓ Wait for your turn notification</li>
-                        <li>✓ Go to the office when called</li>
-                        <li>✓ Service before self</li>
+                        <li>✓ Stay within 100 METERS of the LGA Secretariat</li>
+                        <li>✓ Go to the office when called</li>                       
                     </ul>
                 </div>
                 <button id="logoutBtn" class="mt-4 w-full bg-red-500 text-white font-bold py-2 rounded-lg hover:bg-red-600 text-sm">
                     Logout
                 </button>
+            </div>
             </div>
         </div>
 
@@ -451,32 +449,137 @@
             }
         });
 
-        socket.on('queue-update', (queue) => {
-            if (!currentUser || !queue) return;
-            const userQueueItem = queue.find(q => q && q.full_tag === currentUser.full_tag);
-            
-            if (userQueueItem) {
-                if (userQueueItem.status === 'waiting') {
-                    const queueDiv = document.getElementById('queuePosition');
-                    queueDiv.style.display = 'block';
-                    queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
-                        <p class="text-gray-600 text-sm">Your Queue Number</p>
-                        <p class="text-5xl font-bold text-green-600">${userQueueItem.queue_number}</p>
-                        <p class="text-xs text-gray-500 mt-1">Stay within 100 meters of CDS office</p>
-                        <p class="text-xs text-green-600 mt-2">Position in line: ${queue.filter(q => q.status === 'waiting' && q.queue_number < userQueueItem.queue_number).length + 1} of ${queue.filter(q => q.status === 'waiting').length}</p>
-                    </div>`;
-                } else if (userQueueItem.status === 'called') {
-                    const queueDiv = document.getElementById('queuePosition');
-                    queueDiv.style.display = 'block';
-                    queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
-                        <p class="text-green-600 font-bold text-2xl">🎯 It's your turn!</p>
-                        <p class="text-sm text-gray-600 mt-2">Your queue number: ${userQueueItem.queue_number}</p>
-                        <p class="text-sm text-gray-600">Please go to the CDS office now</p>
-                    </div>`;
-                }
-            }
-        });
+       // Your existing queue-update listener (keep this)
+socket.on('queue-update', (queue) => {
+    if (!currentUser || !queue) return;
+    const userQueueItem = queue.find(q => q && q.full_tag === currentUser.full_tag);
+    
+    if (userQueueItem) {
+        if (userQueueItem.status === 'waiting') {
+            const queueDiv = document.getElementById('queuePosition');
+            queueDiv.style.display = 'block';
+            queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                <p class="text-gray-600 text-sm">Your Queue Number</p>
+                <p class="text-5xl font-bold text-green-600">${userQueueItem.queue_number}</p>
+                <p class="text-xs text-gray-500 mt-1">Stay within 100 meters of CDS office</p>
+                <p class="text-xs text-green-600 mt-2">Position in line: ${queue.filter(q => q.status === 'waiting' && q.queue_number < userQueueItem.queue_number).length + 1} of ${queue.filter(q => q.status === 'waiting').length}</p>
+            </div>`;
+        } else if (userQueueItem.status === 'called') {
+            const queueDiv = document.getElementById('queuePosition');
+            queueDiv.style.display = 'block';
+            queueDiv.innerHTML = `<div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                <p class="text-green-600 font-bold text-2xl">🎯 It's your turn!</p>
+                <p class="text-sm text-gray-600 mt-2">Your queue number: ${userQueueItem.queue_number}</p>
+                <p class="text-sm text-gray-600">Please go to the CDS office now</p>
+            </div>`;
+        }
+    }
+});
 
+// ADD THESE NEW LISTENERS BELOW:
+
+// Listen for your turn (individual notification)
+socket.on('your-turn', (data) => {
+    if (currentUser && data && data.full_tag === currentUser.full_tag && turnNotification) {
+        turnNotification.style.display = 'flex';
+        // Play loud notification sound
+        try {
+            const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+            audio.volume = 1.0;
+            audio.play().catch(e => console.log('Audio not supported'));
+        } catch(e) {}
+    }
+});
+
+// Listen for broadcast when ANY member is called
+socket.on('member-called', (data) => {
+    // Don't show notification for yourself (you already got the turn notification)
+    if (currentUser && data.full_tag === currentUser.full_tag) {
+        return;
+    }
+    
+    showNotification(`🔔 #${data.queue_number} - ${data.name} from ${data.cds_group || data.full_tag} has been called to the office!`, 'warning');
+    
+    // Play subtle sound for other members
+    try {
+        const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+        audio.volume = 0.2;
+        audio.play().catch(e => console.log('Audio not supported'));
+    } catch(e) {}
+});
+
+// Listen for general system notifications
+socket.on('system-notification', (data) => {
+    let icon = 'ℹ️';
+    if (data.type === 'call_alert') icon = '🔔';
+    if (data.type === 'queue_join') icon = '📌';
+    if (data.type === 'queue_leave') icon = '🚶';
+    if (data.type === 'success') icon = '✅';
+    if (data.type === 'warning') icon = '⚠️';
+    if (data.type === 'info') icon = 'ℹ️';
+    
+    // Don't show duplicate join notifications for yourself
+    if (data.type === 'queue_join' && currentUser && data.message.includes(currentUser.full_tag)) {
+        return;
+    }
+    
+    showNotification(`${icon} ${data.message}`, data.type);
+});
+
+// Notification display function
+function showNotification(message, type) {
+    const notificationArea = document.getElementById('notificationArea');
+    if (!notificationArea) return;
+    
+    const notification = document.createElement('div');
+    notification.className = `notification-toast bg-white rounded-lg shadow-xl p-4 mb-3 border-l-4 ${
+        type === 'call_alert' ? 'border-red-500' : 
+        type === 'success' ? 'border-green-500' : 
+        type === 'warning' ? 'border-orange-500' : 'border-blue-500'
+    }`;
+    
+    // Get CDS group icon based on type
+    let bgColor = 'bg-white';
+    let textColor = 'text-gray-800';
+    
+    notification.innerHTML = `
+        <div class="flex items-start ${bgColor} ${textColor}">
+            <div class="flex-1">
+                <p class="text-sm font-medium">${message}</p>
+                <p class="text-xs text-gray-400 mt-1">${new Date().toLocaleTimeString()}</p>
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" class="ml-3 text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+    `;
+    
+    notificationArea.appendChild(notification);
+    
+    // Play notification sound for important alerts
+    if (type === 'call_alert' || type === 'warning') {
+        try {
+            const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+            audio.volume = 0.15;
+            audio.play().catch(e => console.log('Audio not supported'));
+        } catch(e) {}
+    }
+    
+    // Auto-remove after 8 seconds
+    setTimeout(() => {
+        notification.classList.add('fade-out');
+        setTimeout(() => notification.remove(), 500);
+    }, 8000);
+}
+
+// Optional: Connection status
+socket.on('connect', () => {
+    console.log('Connected to server');
+    showNotification('✅ Connected to attendance system', 'success');
+});
+
+socket.on('disconnect', () => {
+    console.log('Disconnected from server');
+    showNotification('⚠️ Connection lost. Reconnecting...', 'warning');
+});
         document.getElementById('confirmCheckin')?.addEventListener('click', async () => {
             if (!currentUser) return;
             await fetch('/api/complete-checkin', {
