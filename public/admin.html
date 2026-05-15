@@ -343,28 +343,37 @@
             }
         }
 
-        document.getElementById('callNextBtn')?.addEventListener('click', async () => {
-            const button = document.getElementById('callNextBtn');
-            button.disabled = true;
-            button.innerHTML = '<span class="animate-pulse">⏳ Calling...</span>';
+        d// Update the call-next function to show announcement
+document.getElementById('callNextBtn').onclick = async () => {
+    const button = document.getElementById('callNextBtn');
+    button.disabled = true;
+    button.innerHTML = '<span class="animate-pulse">⏳ Calling...</span>';
+    
+    try {
+        const response = await fetchWithAuth('/api/call-next', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            // Show announcement to admin
+            alert(`✅ Called Queue #${data.queue_number}\n\nAll members have been notified!`);
+            loadQueue();
+            loadMembers();
             
-            try {
-                const response = await fetchWithAuth('/api/call-next', { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    alert(`✓ Called Queue #${data.queue_number}\nCorper has been notified!`);
-                    loadQueue();
-                    loadMembers();
-                } else {
-                    alert('Queue is empty. No corpers to call.');
-                }
-            } catch (error) {
-                alert('Error calling next person');
-            }
-            
-            button.disabled = false;
-            button.innerHTML = '📢 Call Next Corper';
-        });
+            // Also show in admin panel
+            const announcement = document.createElement('div');
+            announcement.className = 'bg-green-100 border-l-4 border-green-500 p-3 mb-3 rounded';
+            announcement.innerHTML = `<span class="font-bold">📢 Called:</span> Queue #${data.queue_number}`;
+            document.getElementById('queueList').prepend(announcement);
+            setTimeout(() => announcement.remove(), 5000);
+        } else {
+            alert('Queue is empty. No corpers to call.');
+        }
+    } catch (error) {
+        alert('Error calling next person');
+    }
+    
+    button.disabled = false;
+    button.innerHTML = '📢 Call Next Corper';
+};
 
         document.getElementById('logoutBtn')?.addEventListener('click', () => {
             localStorage.removeItem('admin_token');

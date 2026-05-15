@@ -24,6 +24,27 @@
             background-repeat: no-repeat;
             background-position: center;
         }
+
+        .notification-toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .notification-toast.fade-out {
+        animation: fadeOut 0.5s ease-out forwards;
+    }
+    
+    @keyframes fadeOut {
+        to { opacity: 0; transform: translateX(100%); }
+    }
     </style>
 </head>
 <body class="bg-gradient-to-br from-green-50 to-emerald-100 min-h-screen">
@@ -157,12 +178,13 @@
 
         <!-- Dashboard Container -->
         <div id="dashboardContainer" style="display: none;">
+            <div id="notificationArea" style="position: fixed; top: 20px; right: 20px; z-index: 1000; max-width: 350px;"></div>
             <div class="bg-white rounded-2xl shadow-xl p-6 mb-4">
                 <div class="text-center mb-4">
                     <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/NYSC_logo.png/200px-NYSC_logo.png" 
                          alt="NYSC Logo" 
                          class="w-20 h-20 mx-auto mb-2 object-contain">
-                    <p class="text-gray-500 text-sm">Welcome, NYSC Corper</p>
+                    <p class="text-gray-500 text-sm">Welcome,Corper</p>
                     <p id="memberNameDisplay" class="text-xl font-bold text-gray-800 my-2"></p>
                     <p id="cdsGroupDisplay" class="text-green-600 font-medium"></p>
                     <p id="stateCodeDisplay" class="text-gray-600 font-mono text-sm"></p>
@@ -177,10 +199,11 @@
                     </div>
                     
                     <div id="queuePosition" style="display: none;">
-                        <div class="bg-green-50 rounded-xl p-4 mt-4 text-center">
+                        <div class="bg-blue-50 rounded-xl p-4 mt-4 text-center">
                             <p class="text-gray-600 text-sm">Your Queue Number</p>
-                            <p id="positionNumber" class="text-4xl font-bold text-green-600"></p>
-                            <p class="text-xs text-gray-500 mt-1">Stay within 100 meters of CDS office</p>
+                            <p id="positionNumber" class="text-4xl font-bold text-blue-600"></p>
+                            <p class="text-xs text-gray-500 mt-1">Stay within 100 meters to keep your spot</p>
+                            <p class="text-xs text-orange-600 mt-2">⚠️ Leaving the area removes you from queue</p>
                         </div>
                     </div>
                 </div>
